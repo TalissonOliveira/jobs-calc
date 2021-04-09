@@ -19,6 +19,29 @@ const Profile = {
         index(req, res) {
             return res.render(views + 'profile', { profile: Profile.data })
         },
+        update(req, res) {
+            // req.body para pegar os dados
+            const data = req.body
+
+            // definir quantas semanas tem em um ano: 52
+            const weeksPerYear = 52
+            // remover as semanas de férias do ano, para pegar quantas semanas tem 1 mês
+            const weeksPerMonth = (weeksPerYear - Profile.data['vacation-per-year']) / 12
+            // total de horas trabalhadas na semana
+            const weekTotalHours = data['hours-per-day'] * data['days-per-week']
+            // horas trabalhadas no mês
+            const monthlyTotalHours = weekTotalHours * weeksPerMonth
+            // qual vai ser o valor da hora
+            const valueHour = data['monthly-budget'] / monthlyTotalHours
+
+            Profile.data = {
+                ...Profile.data,
+                ...req.body,
+                'value-hour': valueHour
+            }
+
+            return res.redirect('/profile')
+        },
     }
 }
 
@@ -50,7 +73,7 @@ const Job = {
                     ...job,
                     remaining,
                     status,
-                    budget: Profile.data['value-hour'] * job['total-hours']
+                    budget: Job.services.calculateBudget(job, Profile.data['value-hour'])
                 }
             })
         
@@ -60,7 +83,7 @@ const Job = {
             return res.render(views + 'job')
         },
         save(req, res) {
-            const lastId = Job.data[Job.data.length - 1]?.id || 1 // ? = se tiver id, pegue ele, se não tiver entre no OU
+            const lastId = Job.data[Job.data.length - 1]?.id || 0 // ? = se tiver id, pegue ele, se não tiver entre no OU
 
             Job.data.push({
                 id: lastId + 1,
@@ -70,6 +93,52 @@ const Job = {
                 created_at: Date.now() // atribuindo a data de hoje
             })
 
+            return res.redirect('/')
+        },
+        show(req, res) {
+            // Pegar parâmetro da url
+            const jobId = req.params.id
+            // Procurar pelo job com id igual ao jobId
+            const job = Job.data.find(job => Number(job.id) === Number(jobId))
+
+            if (!job) {
+                return res.send('Job not found')
+            }
+
+            job.budget = Job.services.calculateBudget(job, Profile.data['value-hour'])
+
+            return res.render(views + 'job-edit', { job })
+        },
+        update(req, res) {
+            const jobId = req.params.id
+
+            const job =  Job.data.find(job => Number(job.id) === Number(jobId))
+
+            if (!job) {
+                return res.send('Job not found')
+            }
+
+            const updatedJob = {
+                ...job,
+                name: req.body.name,
+                'total-hours': req.body['total-hours'],
+                'daily-hours': req.body['daily-hours'],
+            }
+
+            Job.data = Job.data.map(job => {
+                if (Number(job.id) === Number(jobId)) {
+                    job = updatedJob
+                }
+
+                return job
+            })
+
+            res.redirect('/job/' + jobId)
+        },
+        delete(req, res) {
+            const jobId = req.params.id
+
+            Job.data = Job.data.filter(job => Number(job.id) !== Number(jobId)) // filtrar os itens com id diferentes do jobId
             return res.redirect('/')
         },
     },
@@ -91,6 +160,7 @@ const Job = {
             // Total de dias retantes
             return dayDiff
         },
+        calculateBudget: (job, valueHour) => valueHour * job['total-hours'],
     }
 }
 
@@ -98,7 +168,9 @@ const Job = {
 routes.get('/', Job.controllers.index)
 routes.get('/job', Job.controllers.create)
 routes.post('/job', Job.controllers.save)
-routes.get('/job/edit', (req, res) => res.render(views + 'job-edit'))
+routes.get('/job/:id', Job.controllers.show)
+routes.post('/job/:id', Job.controllers.update)
+routes.post('/job/delete/:id', Job.controllers.delete)
 routes.get('/profile', Profile.controllers.index)
 routes.post('/profile', Profile.controllers.update)
 
